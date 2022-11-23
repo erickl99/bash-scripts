@@ -1,0 +1,103 @@
+#!/bin/sh
+
+help_msg() {
+    echo "\nUSAGE: ldapu [-u user] [-D domain] [-d department] [-h] name...
+
+A script to help create an LDIF file from a list of names, and optionally add to
+the LDAP server. Names should be given after all other flags have been
+passed, each name inside quotation marks.
+
+-u user
+    Specify the user to authenticate to the LDAP server as.
+    The script will attempt to authenticate using \"cn=user,DOMAIN\".
+    Using this flag will automatically add the LDIF file created to the LDAP server.
+-d department
+    Specify the department that ALL the newly added persons will be
+    assigned to. If this option is not used you will be prompted 
+    to specify the department for each person.
+-D domain
+    Specify the suffix for the DIT.
+    This is best for one time uses, you can set the default domain 
+    by editing the DOMAIN variable in the script.
+-h
+    Display this help message and exit"
+}
+
+# getopts does not support GNU style options, so we define one for help
+[ "$1" = "--help" ] && help_msg && exit 0
+
+OPTIND=1
+
+while getopts :u:d:D:h arg; do
+    case $arg in
+        u)
+          USR="$OPTARG" 
+		  ;;
+		d)
+		  DEP="$OPTARG"
+		  DEP_SET="true"
+		  ;;
+		D)
+		  DOMAIN="$OPTARG"
+		  ;;
+        h)
+          help_msg 
+		  exit 0
+          ;;
+        \?)
+          echo "Invalid option: -$OPTARG" 
+		  exit 1
+          ;;
+		:)
+		  echo "Option -$OPTARG requires an argument."
+		  exit 1
+		  ;;
+    esac
+done
+
+[ -z "$DOMAIN" ] && DOMAIN="dc=eol,dc=com"
+
+shift $((OPTIND-1))
+
+[ -z "$1" ] && echo "No name provided" && help_msg && exit 1;
+
+[ -e base.ldif ] || touch base.ldif
+
+> base.ldif
+
+for arg
+do
+  [ -z "$arg" ] && echo "No name provided" && exit 1;
+  COMMON_NAME=$arg
+  FIRST_NAME="${COMMON_NAME%% *}"
+  SURNAME="${COMMON_NAME#* }"
+  INITIAL="$(echo $FIRST_NAME | cut -c1 | tr [:upper:] [:lower:])"
+  LOWER_SURNAME="$(echo $SURNAME | tr -d ' ' | tr [:upper:] [:lower:] )"
+  USR_ID="$INITIAL$LOWER_SURNAME"
+
+  if [ -z $DEP_SET ]
+    then
+      echo -n "Department for $COMMON_NAME: "
+	  read DEP
+	  echo
+  fi
+
+  cat >> base.ldif << EOF
+dn: uid=$USR_ID,ou=People,$DOMAIN
+objectClass: inetOrgPerson
+cn: $arg
+cn: $FIRST_NAME
+sn: $SURNAME
+uid: $USR_ID
+ou: $DEP
+
+EOF
+
+  [ -z "$DEP_SET" ] || unset $DEP
+done
+
+if [ ! -z $USR ] 
+  then
+	AUTH_USR="cn=$USR,$DOMAIN"
+    ldapadd -x -W -D $AUTH_USR -f base.ldif
+fi

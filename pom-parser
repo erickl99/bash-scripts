@@ -1,0 +1,38 @@
+#!/bin/sh
+
+help() {
+    echo "Usage: mvn-path [-h] [-d out] file
+
+A script to derive a classpath from the pom.xml of a maven project.
+
+-d out
+    Specify the base directory where the dependencies will be located.
+	The default location is the user's .m2 directory.
+-h 
+    Display this message and exit "
+}
+
+while getopts :d:h arg; do
+    case $arg in
+		d)
+		  LIB_DIR="$OPTARG"
+		  ;;
+	    h)
+		  help
+		  exit 0
+		  ;;
+		:)
+		  echo "Options -$OPTARG requires an argument."
+		  exit 1
+		  ;;
+	esac
+done
+
+shift $((OPTIND-1))
+
+sed -E 's/[[:blank:]]+//g' $1 |
+sed -n '/<dependencies>/,/<\/dependencies>/p' |
+grep -E 'groupId|artifactId|version' | 
+sed -E 's.<(/)?(groupId|artifactId|version)>..g' |
+xargs -n3 echo | tr " " "/"
+echo
